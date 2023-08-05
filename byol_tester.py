@@ -53,4 +53,4 @@ for i in range(10):
     print("Epoch: ",i," Loss: ", loss.item())
 
 # save your improved network
-torch.save(resnet.state_dict(), './improved-net.pt')
+torch.save(resnet.state_dict(), '../BYOL_weights.pt')
