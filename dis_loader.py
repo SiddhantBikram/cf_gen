@@ -8,7 +8,7 @@ from tqdm import tqdm
 from skimage import io
 import os
 from glob import glob
-
+from skimage.transform import resize
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
@@ -1009,11 +1009,12 @@ class GOSNormalize(object):
 
 transform =  transforms.Compose([GOSNormalize([0.5,0.5,0.5],[1.0,1.0,1.0])])
 
-def load_image(im_path, hypar):
+def load_image(im_path, hypar, image_dim):
     if im_path.startswith("http"):
         im_path = BytesIO(requests.get(im_path).content)
 
     im = im_reader(im_path)
+    # im = resize(im, (image_dim, image_dim), anti_aliasing=True)
     im, im_shp = im_preprocess(im, hypar["cache_size"])
     im = torch.divide(im,255.0)
     shape = torch.from_numpy(np.array(im_shp))
