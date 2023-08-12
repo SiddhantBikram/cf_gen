@@ -4,9 +4,6 @@ import os
 root_dir = 'D:/Research/Counterfactual/Scripts/'
 
 sys.path.append(os.path.join(root_dir,'cf_gen','lama'))
-# sys.path.append(os.path.join(root_dir,'cf_gen','lama', 'models'))
-
-# os.chdir(os.path.join(root_dir,'cf_gen','lama'))
 
 import logging
 import os
@@ -44,14 +41,7 @@ bg_dir = os.path.join(root_dir, 'bg')
 if os.path.exists(inpaint_dir):
     shutil.rmtree(inpaint_dir)
 
-if os.path.exists(inpaint_dir):
-    shutil.rmtree(inpaint_dir)
-
 os.mkdir(inpaint_dir)
-
-# files = glob.glob(inpaint_dir + '/*')
-# for f in files:
-#     os.remove(f)
 
 for dirpath, dirnames, filenames in os.walk(bg_dir):
     structure1 = os.path.join(inpaint_dir, dirpath[len(bg_dir) +1:])
@@ -60,7 +50,6 @@ for dirpath, dirnames, filenames in os.walk(bg_dir):
 
 @hydra.main(config_path=os.path.join(root_dir,'cf_gen/lama/configs/prediction'), config_name='inpaint_test.yaml')
 def main(predict_config: OmegaConf):
-    # register_debug_signal_handlers()  # kill -10 <pid> will result in traceback dumped into log
 
     device = torch.device(predict_config.device)
 
@@ -79,46 +68,38 @@ def main(predict_config: OmegaConf):
     model.freeze()
     if not predict_config.get('refine', False):
         model.to(device)
-
-    # if not predict_config.indir.endswith('/'):
-    #     predict_config.indir += '/'
     
-    dataset = make_default_val_dataset(predict_config.indir, **predict_config.dataset)
-    for img_i in tqdm.trange(len(dataset)):
-        mask_fname = dataset.mask_filenames[img_i]
-        cur_out_fname = 'D:/Research/Counterfactual/Scripts/inpaint'+os.path.splitext(mask_fname[len(predict_config.indir):])[0][:-8]+ out_ext
-        
-        os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
-        batch = default_collate([dataset[img_i]])
+    for dirpath, dirnames, filenames in os.walk(bg_dir):
+        if os.listdir(dirpath)[0].endswith('.png'):
+            dataset = make_default_val_dataset(dirpath, **predict_config.dataset)
+            for img_i in tqdm.trange(len(dataset)):
+                mask_fname = dataset.mask_filenames[img_i]
+                #Inpaint directory, subdirectory, and image name respectively
+                cur_out_fname = os.path.join(inpaint_dir, dirpath[len(bg_dir) +1:], mask_fname.split('\\')[-1].split('.')[0][:-8]+'.png')
+                os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
+                batch = default_collate([dataset[img_i]])
 
-        if predict_config.get('refine', False):
-            assert 'unpad_to_size' in batch, "Unpadded size is required for the refinement"
-            # image unpadding is taken care of in the refiner, so that output image
-            # is same size as the input image
-            cur_res = refine_predict(batch, model, **predict_config.refiner)
-            cur_res = cur_res[0].permute(1,2,0).detach().cpu().numpy()
-        else:
+                # if predict_config.get('refine', False):
+                #     assert 'unpad_to_size' in batch, "Unpadded size is required for the refinement"
+                #     cur_res = refine_predict(batch, model, **predict_config.refiner)
+                #     cur_res = cur_res[0].permute(1,2,0).detach().cpu().numpy()
+                # else:
 
-            with torch.no_grad():
-                batch = move_to_device(batch, device)
-                batch['mask'] = (batch['mask'] > 0) * 1
-                batch = model(batch)                    
-                cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
-                unpad_to_size = batch.get('unpad_to_size', None)
-                if unpad_to_size is not None:
-                    orig_height, orig_width = unpad_to_size
-                    cur_res = cur_res[:orig_height, :orig_width]
+                with torch.no_grad():
+                    batch = move_to_device(batch, device)
+                    batch['mask'] = (batch['mask'] > 0) * 1
+                    batch = model(batch)                    
+                    cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
+                    unpad_to_size = batch.get('unpad_to_size', None)
+                    if unpad_to_size is not None:
+                        orig_height, orig_width = unpad_to_size
+                        cur_res = cur_res[:orig_height, :orig_width]
 
-        cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
-        cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(cur_out_fname, cur_res)
+                cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
+                cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(cur_out_fname, cur_res)
 
 
 
 
 main()
-
-# model: torch.nn.Module = make_training_model(train_config)
-# state = torch.load(path, map_location=map_location)
-# model.load_state_dict(state['state_dict'], strict=strict)
-# model.on_load_checkpoint(state)

@@ -11,14 +11,11 @@ import shutil
  
 import os
  
-# def ignore_files(dir, files):
-#     return [f for f in files if os.path.isfile(os.path.join(dir, f))]
-
 root_dir = 'D:/Research/Counterfactual/Scripts/'
-
+image_dir = os.path.join(root_dir, 'IN9sub')
 object_dir = os.path.join(root_dir, 'objects')
 bg_dir = os.path.join(root_dir, 'bg')
-image_dir = os.path.join(root_dir, 'original')
+mask_dir = os.path.join(root_dir, 'masks')
 
 if os.path.exists(object_dir):
     shutil.rmtree(object_dir)
@@ -26,11 +23,13 @@ if os.path.exists(object_dir):
 if os.path.exists(bg_dir):
     shutil.rmtree(bg_dir)
 
+
+if os.path.exists(mask_dir):
+    shutil.rmtree(mask_dir)
+
 os.mkdir(object_dir)
 os.mkdir(bg_dir)
-# files = glob.glob(object_dir + '/*') + glob.glob(bg_dir +'/*')
-# for f in files:
-#     os.remove(f)
+os.mkdir(mask_dir)
 
 # then = datetime.now()
 # now = datetime.now()
@@ -39,11 +38,14 @@ os.mkdir(bg_dir)
 for dirpath, dirnames, filenames in os.walk(image_dir):
     structure1 = os.path.join(bg_dir, dirpath[len(image_dir) +1:])
     structure2 = os.path.join(object_dir, dirpath[len(image_dir) +1:])
+    structure3 = os.path.join(mask_dir, dirpath[len(image_dir) +1:])
+
     if not os.path.isdir(structure1):
         os.mkdir(structure1)
     if not os.path.isdir(structure2):
         os.mkdir(structure2)
-
+    if not os.path.isdir(structure3):
+        os.mkdir(structure3)
 
 image_dim = 256
 
@@ -77,18 +79,16 @@ for root, dirs, files in os.walk(image_dir):
             image = Image.open(image_path)
             blank = image.point(lambda _: 0)
             object = Image.composite(image, blank, image_mask)
-
-            # mask_invert = ImageOps.invert(image_mask)
             object = object.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
 
             object.save(os.path.join(object_dir, root[len(image_dir) +1:], img_name.split('.')[0]+'.png'))
             
-            # print(os.path.join(bg_dir, img_name.split('.')[0]+'.png'))
             image = image.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
             image_mask = image_mask.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
 
             image.save(os.path.join(bg_dir, root[len(image_dir) +1:], img_name.split('.')[0]+'.png'))
             image_mask.save(os.path.join(bg_dir, root[len(image_dir) +1:], img_name.split('.')[0]+'_mask001.png'))
+            image_mask.save(os.path.join(mask_dir, root[len(image_dir) +1:], img_name.split('.')[0]+'.png'))
 
             i = i+1
             print(i)
