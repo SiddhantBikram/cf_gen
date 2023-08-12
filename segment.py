@@ -16,9 +16,9 @@ import os
 
 root_dir = 'D:/Research/Counterfactual/Scripts/'
 
-object_dir = os.path.join(root_dir, 'bg')
-bg_dir = os.path.join(root_dir, 'objects')
-image_dir = os.path.join(root_dir, 'imagenet-mini')
+object_dir = os.path.join(root_dir, 'objects')
+bg_dir = os.path.join(root_dir, 'bg')
+image_dir = os.path.join(root_dir, 'original')
 
 if os.path.exists(object_dir):
     shutil.rmtree(object_dir)
@@ -45,8 +45,7 @@ for dirpath, dirnames, filenames in os.walk(image_dir):
         os.mkdir(structure2)
 
 
-
-image_dim = 512
+image_dim = 256
 
 def seg_model(size, seed):
     hypar = {} # paramters for inferencing
@@ -71,7 +70,6 @@ i=0
 for root, dirs, files in os.walk(image_dir):
 	for img_name in files:
             image_path = os.path.join(root, img_name)
-            print(image_path)
             image_tensor, orig_size = load_image(image_path, hypar, image_dim)
             mask = predict(net,image_tensor,orig_size, hypar, device)
 
@@ -83,13 +81,14 @@ for root, dirs, files in os.walk(image_dir):
             # mask_invert = ImageOps.invert(image_mask)
             object = object.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
 
-            object.save(os.path.join(object_dir, img_name))
+            object.save(os.path.join(object_dir, root[len(image_dir) +1:], img_name.split('.')[0]+'.png'))
             
             # print(os.path.join(bg_dir, img_name.split('.')[0]+'.png'))
             image = image.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
             image_mask = image_mask.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
 
-            image.save(os.path.join(bg_dir, , img_name.split('.')[0]+'.png'))
-            image_mask.save(os.path.join(bg_dir, , img_name.split('.')[0]+'_mask001.png'))
+            image.save(os.path.join(bg_dir, root[len(image_dir) +1:], img_name.split('.')[0]+'.png'))
+            image_mask.save(os.path.join(bg_dir, root[len(image_dir) +1:], img_name.split('.')[0]+'_mask001.png'))
 
             i = i+1
+            print(i)

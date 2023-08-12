@@ -83,35 +83,37 @@ def main(predict_config: OmegaConf):
     # if not predict_config.indir.endswith('/'):
     #     predict_config.indir += '/'
     
-    dataset = make_default_val_dataset(predict_config.indir, **predict_config.dataset)
-    for img_i in tqdm.trange(len(dataset)):
-        mask_fname = dataset.mask_filenames[img_i]
-        cur_out_fname = 'D:/Research/Counterfactual/Scripts/inpaint'+os.path.splitext(mask_fname[len(predict_config.indir):])[0][:-8]+ out_ext
-        
-        os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
-        batch = default_collate([dataset[img_i]])
+    for dirpath, dirnames, filenames in os.walk(bg_dir):
+        if os.listdir(dirpath)[0].endswith('.png'):
+            dataset = make_default_val_dataset(dirpath, **predict_config.dataset)
+            for img_i in tqdm.trange(len(dataset)):
+                mask_fname = dataset.mask_filenames[img_i]
+                cur_out_fname = inpaint_dir+os.path.splitext(mask_fname[len(predict_config.indir):])[0][:-8]+ out_ext
+                
+                os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
+                batch = default_collate([dataset[img_i]])
 
-        if predict_config.get('refine', False):
-            assert 'unpad_to_size' in batch, "Unpadded size is required for the refinement"
-            # image unpadding is taken care of in the refiner, so that output image
-            # is same size as the input image
-            cur_res = refine_predict(batch, model, **predict_config.refiner)
-            cur_res = cur_res[0].permute(1,2,0).detach().cpu().numpy()
-        else:
+                if predict_config.get('refine', False):
+                    assert 'unpad_to_size' in batch, "Unpadded size is required for the refinement"
+                    # image unpadding is taken care of in the refiner, so that output image
+                    # is same size as the input image
+                    cur_res = refine_predict(batch, model, **predict_config.refiner)
+                    cur_res = cur_res[0].permute(1,2,0).detach().cpu().numpy()
+                else:
 
-            with torch.no_grad():
-                batch = move_to_device(batch, device)
-                batch['mask'] = (batch['mask'] > 0) * 1
-                batch = model(batch)                    
-                cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
-                unpad_to_size = batch.get('unpad_to_size', None)
-                if unpad_to_size is not None:
-                    orig_height, orig_width = unpad_to_size
-                    cur_res = cur_res[:orig_height, :orig_width]
+                    with torch.no_grad():
+                        batch = move_to_device(batch, device)
+                        batch['mask'] = (batch['mask'] > 0) * 1
+                        batch = model(batch)                    
+                        cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
+                        unpad_to_size = batch.get('unpad_to_size', None)
+                        if unpad_to_size is not None:
+                            orig_height, orig_width = unpad_to_size
+                            cur_res = cur_res[:orig_height, :orig_width]
 
-        cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
-        cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(cur_out_fname, cur_res)
+                cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
+                cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(cur_out_fname, cur_res)
 
 
 
