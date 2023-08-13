@@ -21,49 +21,21 @@ import os.path as osp
 n_sample_image = 1
 
 controlnet_path = OrderedDict([
-    ['canny'             , ('canny'   , 'pretrained/controlnet/control_sd15_canny_slimmed.safetensors')],
-    ['canny_v11p'        , ('canny'   , 'D:/Research/Counterfactual/Scripts/weights/control_sd15_canny_slimmed.safetensors')],
-    ['depth'             , ('depth'   , 'pretrained/controlnet/control_sd15_depth_slimmed.safetensors')],
-    ['hed'               , ('hed'     , 'pretrained/controlnet/control_sd15_hed_slimmed.safetensors')],
-    ['softedge_v11p'     , ('hed'     , 'pretrained/controlnet/control_v11p_sd15_softedge_slimmed.safetensors')],
-    ['mlsd'              , ('mlsd'    , 'pretrained/controlnet/control_sd15_mlsd_slimmed.safetensors')],
-    ['mlsd_v11p'         , ('mlsd'    , 'pretrained/controlnet/control_v11p_sd15_mlsd_slimmed.safetensors')],
-    ['normal'            , ('normal'  , 'pretrained/controlnet/control_sd15_normal_slimmed.safetensors')],
-    ['openpose'          , ('openpose', 'pretrained/controlnet/control_sd15_openpose_slimmed.safetensors')],
-    ['openpose_v11p'     , ('openpose', 'pretrained/controlnet/control_v11p_sd15_openpose_slimmed.safetensors')],
-    ['scribble'          , ('scribble', 'pretrained/controlnet/control_sd15_scribble_slimmed.safetensors')],
-    ['seg'               , ('none'    , 'pretrained/controlnet/control_sd15_seg_slimmed.safetensors')],
-    ['lineart_v11p'      , ('none'    , 'pretrained/controlnet/control_v11p_sd15_lineart_slimmed.safetensors')],
-    ['lineart_anime_v11p', ('none'    , 'pretrained/controlnet/control_v11p_sd15s2_lineart_anime_slimmed.safetensors')],
+    ['canny_v11p'        , ('canny'   ,  os.path.join(root_dir, 'weights/control_sd15_canny_slimmed.safetensors'))],
 ])
 
 preprocess_method = [
     'canny'                ,
-    'depth'                ,
-    'hed'                  ,
-    'mlsd'                 ,
-    'normal'               ,
-    'openpose'             ,
-    'openpose_withface'    ,
-    'openpose_withfacehand',
-    'scribble'             ,
     'none'                 ,
 ]
 
 diffuser_path = OrderedDict([
-    ['SD-v1.5'             , 'pretrained/pfd/diffuser/SD-v1-5.safetensors'],
-    ['OpenJouney-v4'       , 'D:/Research/Counterfactual/Scripts/weights/OpenJouney-v4.safetensors'],
-    ['Deliberate-v2.0'     , 'pretrained/pfd/diffuser/Deliberate-v2-0.safetensors'],
-    ['RealisticVision-v2.0', 'pretrained/pfd/diffuser/RealisticVision-v2-0.safetensors'],
-    ['Anything-v4'         , 'pretrained/pfd/diffuser/Anything-v4.safetensors'],
-    ['Oam-v3'              , 'pretrained/pfd/diffuser/AbyssOrangeMix-v3.safetensors'],
-    ['Oam-v2'              , 'pretrained/pfd/diffuser/AbyssOrangeMix-v2.safetensors'],
+    ['OpenJouney-v4'       ,  os.path.join(root_dir, 'weights/OpenJouney-v4.safetensors')],
+
 ])
 
 ctxencoder_path = OrderedDict([
-    ['SeeCoder'      , 'D:/Research/Counterfactual/Scripts/weights/seecoder-v1-0.safetensors'],
-    ['SeeCoder-PA'   , 'pretrained/pfd/seecoder/seecoder-pa-v1-0.safetensors'],
-    ['SeeCoder-Anime', 'pretrained/pfd/seecoder/seecoder-anime-v1-0.safetensors'],
+    ['SeeCoder'      ,  os.path.join(root_dir, 'weights/seecoder-v1-0.safetensors')],
 ])
 
 def highlight_print(info):
@@ -75,12 +47,12 @@ def highlight_print(info):
 
 def load_sd_from_file(target):
     if osp.splitext(target)[-1] == '.ckpt':
-        sd = torch.load(target, map_location='cpu')['state_dict']
+        sd = torch.load(target, map_location='cuda')['state_dict']
     elif osp.splitext(target)[-1] == '.pth':
-        sd = torch.load(target, map_location='cpu')
+        sd = torch.load(target, map_location='cuda')
     elif osp.splitext(target)[-1] == '.safetensors':
         from safetensors.torch import load_file as stload
-        sd = OrderedDict(stload(target, device='cpu'))
+        sd = OrderedDict(stload(target, device='cuda'))
     else:
         assert False, "File type must be .ckpt or .pth or .safetensors"
     return sd
@@ -218,7 +190,7 @@ class prompt_free_diffusion(object):
         n_samples = self.n_sample_image
 
         sampler = self.sampler
-        device = self.net.device
+        device = 'cuda'
 
         w = w//64 * 64
         h = h//64 * 64

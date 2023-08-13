@@ -51,7 +51,7 @@ for dirpath, dirnames, filenames in os.walk(bg_dir):
 @hydra.main(config_path=os.path.join(root_dir,'cf_gen/lama/configs/prediction'), config_name='inpaint_test.yaml')
 def main(predict_config: OmegaConf):
 
-    device = torch.device(predict_config.device)
+    device = 'cuda'
 
     train_config_path = os.path.join(root_dir, 'cf_gen/lama/configs/prediction/inpaint_train.yaml')
 
@@ -66,9 +66,8 @@ def main(predict_config: OmegaConf):
     checkpoint_path = os.path.join(root_dir, 'weights', 'inpaint_weights.ckpt')
     model = load_checkpoint(train_config, checkpoint_path, strict=False, map_location='cpu')
     model.freeze()
-    if not predict_config.get('refine', False):
-        model.to(device)
-    
+    model.to(device)
+    i=0
     for dirpath, dirnames, filenames in os.walk(bg_dir):
         if os.listdir(dirpath)[0].endswith('.png'):
             dataset = make_default_val_dataset(dirpath, **predict_config.dataset)
@@ -98,8 +97,7 @@ def main(predict_config: OmegaConf):
                 cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
                 cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
                 cv2.imwrite(cur_out_fname, cur_res)
-
-
-
+                print(i)
+                i = i+1
 
 main()

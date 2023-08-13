@@ -8,6 +8,8 @@ import torch.nn.functional as F
 
 from torchvision import transforms as T
 
+from PIL import ImageFilter
+import random
 # helper functions
 
 def default(val, def_val):
@@ -178,11 +180,12 @@ class BYOL(nn.Module):
         augment_fn = None,
         augment_fn2 = None,
         moving_average_decay = 0.99,
-        use_momentum = True
+        use_momentum = True,
+        return_embedding = False
     ):
         super().__init__()
         self.net = net
-
+        self.return_embedding = return_embedding
         # default SimCLR augmentation
 
         DEFAULT_AUG = torch.nn.Sequential(
@@ -238,12 +241,11 @@ class BYOL(nn.Module):
     def forward(
         self,
         x,
-        return_embedding = False,
         return_projection = True
     ):
         assert not (self.training and x.shape[0] == 1), 'you must have greater than 1 sample when training, due to the batchnorm in the projection layer'
 
-        if return_embedding:
+        if self.return_embedding:
             return self.online_encoder(x, return_projection = return_projection)
 
         image_one, image_two = self.augment1(x), self.augment2(x)
@@ -266,3 +268,26 @@ class BYOL(nn.Module):
 
         loss = loss_one + loss_two
         return loss.mean()
+
+class TwoCropsTransform:
+    """Take two random crops of one image as the query and key."""
+
+    def __init__(self, base_transform):
+        self.base_transform = base_transform
+
+    def __call__(self, x):
+        q = self.base_transform(x)
+        k = self.base_transform(x)
+        return [q, k]
+
+
+class GaussianBlur(object):
+    """Gaussian blur augmentation in SimCLR https://arxiv.org/abs/2002.05709"""
+
+    def __init__(self, sigma=[.1, 2.]):
+        self.sigma = sigma
+
+    def __call__(self, x):
+        sigma = random.uniform(self.sigma[0], self.sigma[1])
+        x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
+        return x
