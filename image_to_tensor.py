@@ -20,7 +20,7 @@ def imfolder():
 
     for root, dirs, files in os.walk(image_dir):
 	    for img_name in files:
-                image = Image.open(os.path.join(root, img_name))
+                image = Image.open(os.path.join(root,  img_name))
                 image = image.resize((256,256))
                 image = convert_tensor(image)
                 imgs.append(image)

@@ -38,12 +38,9 @@ augmentation = [
                                     std=[0.229, 0.224, 0.225])
         ]
 
-train_dataset = datasets.ImageFolder(image_dir, TwoCropsTransform(transforms.Compose(augmentation)))
+train_dataset = datasets.ImageFolder(object_dir, TwoCropsTransform(transforms.Compose(augmentation)))
 
-train_loader = torch.utils.data.DataLoader(
-    train_dataset, batch_size=16, shuffle = False, pin_memory=True, drop_last=True)
-
-print('Images loaded.')
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=16, shuffle = False, pin_memory=True, drop_last=True)
 
 epochs = 4
 
