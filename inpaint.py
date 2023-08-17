@@ -10,8 +10,7 @@ import os
 import sys
 import traceback
 
-from saicinpainting.evaluation.utils import move_to_device
-from saicinpainting.evaluation.refinement import refine_predict
+
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
@@ -32,8 +31,10 @@ import shutil
 from saicinpainting.training.data.datasets import make_default_val_dataset
 from saicinpainting.training.trainers import load_checkpoint
 from saicinpainting.utils import register_debug_signal_handlers
+from saicinpainting.evaluation.utils import move_to_device
+from saicinpainting.evaluation.refinement import refine_predict
 
-root_dir = 'D:/Research/Counterfactual/Scripts/'
+from configs import *
 
 inpaint_dir = os.path.join(root_dir, 'inpaint')
 bg_dir = os.path.join(root_dir, 'bg')
@@ -63,7 +64,7 @@ def main(predict_config: OmegaConf):
 
     out_ext = predict_config.get('out_ext', '.png')
 
-    checkpoint_path = os.path.join(root_dir, 'weights', 'inpaint_weights.ckpt')
+    checkpoint_path = os.path.join(weight_dir, 'inpaint_weights.ckpt')
     model = load_checkpoint(train_config, checkpoint_path, strict=False, map_location='cpu')
     model.freeze()
     model.to(device)

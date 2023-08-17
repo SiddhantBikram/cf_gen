@@ -11,11 +11,7 @@ import shutil
  
 import os
  
-root_dir = 'D:/Research/Counterfactual/Scripts/'
-image_dir = os.path.join(root_dir, 'IN9sub')
-object_dir = os.path.join(root_dir, 'objects')
-bg_dir = os.path.join(root_dir, 'bg')
-mask_dir = os.path.join(root_dir, 'masks')
+from configs import *
 
 if os.path.exists(object_dir):
     shutil.rmtree(object_dir)
