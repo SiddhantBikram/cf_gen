@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore")
 
 from configs import *
 
-def imfolder():
+def imfolder(dir):
     imgs = []
     names = []
     labels = []
@@ -18,7 +18,7 @@ def imfolder():
 
     print('Loading images')
 
-    for root, dirs, files in os.walk(image_dir):
+    for root, dirs, files in os.walk(dir):
 	    for img_name in files:
                 image = Image.open(os.path.join(root,  img_name))
                 image = image.resize((256,256))
@@ -30,12 +30,14 @@ def imfolder():
     imgs = torch.stack(imgs)
     return imgs, names, labels
 
-images, names, labels = imfolder()
+images, names, labels = imfolder(image_dir)
 
 torch.save(images, os.path.join(root_dir, 'weights', dataset_name, 'features.pt'))
 
-with open(os.path.join(root_dir, 'weights', dataset_name + 'paths'), 'wb') as fp:
-    pickle.dump(names, fp)
+# torch.save(images, os.path.join(root_dir, 'weights', dataset_name, '_bg_features.pt'))
 
-with open(os.path.join(root_dir, 'weights', dataset_name, 'labels'), 'wb') as f:
-    pickle.dump(labels, f)
+# with open(os.path.join(root_dir, 'weights', dataset_name + 'paths'), 'wb') as fp:
+#     pickle.dump(names, fp)
+
+# with open(os.path.join(root_dir, 'weights', dataset_name, 'labels'), 'wb') as f:
+#     pickle.dump(labels, f)

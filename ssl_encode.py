@@ -21,7 +21,7 @@ resnet.state_dict(torch.load(os.path.join(root_dir, 'weights', dataset_name, 'mo
 with open(os.path.join(root_dir, 'weights', dataset_name , 'paths'), "rb") as fp:   
    names = pickle.load(fp)
 
-train_dataset = datasets.ImageFolder(object_dir, transforms.ToTensor())
+train_dataset = datasets.ImageFolder(inpaint_dir, transforms.ToTensor())
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset, batch_size=1, shuffle = False, pin_memory=True, drop_last=True)
@@ -44,4 +44,6 @@ for j, (images, _) in enumerate(train_loader):
 
 embeddings = torch.stack(embeddings)
 
-torch.save(embeddings, os.path.join(root_dir, 'weights', dataset_name, 'embeddings.pt'))
+# torch.save(embeddings, os.path.join(root_dir, 'weights', dataset_name, 'embeddings.pt'))
+
+torch.save(embeddings, os.path.join(root_dir, 'weights', dataset_name, 'bg_embeddings.pt'))
