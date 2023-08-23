@@ -11,3 +11,4 @@ inpaint_dir = os.path.join(root_dir, 'inpaint')
 bg_avg_dir = os.path.join(root_dir, 'bg_average')
 
 image_dim = 256
+device = 'cuda'
