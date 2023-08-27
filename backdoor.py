@@ -22,6 +22,7 @@ conf_dict = torch.from_numpy(conf_dict)
 torch.save(conf_dict, os.path.join(root_dir, 'weights', dataset_name, 'conf_dict.pt'))
 
 for i in range(len(bg_embeddings)):
+    
     joint_rep = torch.cat((obj_embeddings[i], bg_embeddings[i]), 0).unsqueeze(1).cpu()
     ccim = CCIM(1, image_dim, strategy='dp_cause')
     out = ccim(joint_rep, conf_dict)
