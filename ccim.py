@@ -131,11 +131,11 @@ class additive_intervention(nn.Module):
 
     return fin
 
-if __name__ == '__main__':
-  ''' An example showing how CCIM is used '''
-  joint_feature = torch.randn(256, 1)
-  confounder = torch.randn(1024, 2048)
-  probabilities = torch.rand(1024, 1)
-  ccim = CCIM(1, 2048, strategy = 'dp_cause')  #options: ad_cause, dp_cause
-  out = ccim(joint_feature, confounder, probabilities, dataset = 'CAER_S')  # options: EMOTIC, CAER-S, GroupWalk
-  print(out.shape)
+# if __name__ == '__main__':
+#   ''' An example showing how CCIM is used '''
+#   joint_feature = torch.randn(256, 1)
+#   confounder = torch.randn(1024, 2048)
+#   probabilities = torch.rand(1024, 1)
+#   ccim = CCIM(1, 2048, strategy = 'dp_cause')  #options: ad_cause, dp_cause
+#   out = ccim(joint_feature, confounder, probabilities, dataset = 'CAER_S')  # options: EMOTIC, CAER-S, GroupWalk
+#   print(out.shape)
