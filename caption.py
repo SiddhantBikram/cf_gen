@@ -7,7 +7,7 @@ import pickle
 processor = AutoProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
 model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
 
-dir = os.path.join(inpaint_dir, 'train', '01_bird')
+dir = os.path.join(inpaint_dir, 'train', '02_wheeled vehicle')
 
 caps = []
 
@@ -21,5 +21,5 @@ for img in os.listdir(dir):
     print(generated_caption)
     caps.append(generated_caption)
 
-with open(os.path.join(root_dir, 'caps'), 'wb') as fp:
+with open(os.path.join(root_dir, 'caps_car'), 'wb') as fp:
     pickle.dump(caps, fp)

@@ -1,8 +1,6 @@
 import sys
 import os
-
-root_dir = 'D:/Research/Counterfactual/Scripts/'
-
+from configs import *
 sys.path.append(os.path.join(root_dir,'cf_gen','lama'))
 
 import logging
@@ -30,9 +28,7 @@ import shutil
 
 from saicinpainting.training.data.datasets import make_default_val_dataset
 from saicinpainting.training.trainers import load_checkpoint
-from saicinpainting.utils import register_debug_signal_handlers
 from saicinpainting.evaluation.utils import move_to_device
-from saicinpainting.evaluation.refinement import refine_predict
 
 from configs import *
 
@@ -72,12 +68,14 @@ def main(predict_config: OmegaConf):
     for dirpath, dirnames, filenames in os.walk(bg_dir):
         if os.listdir(dirpath)[0].endswith('.png'):
             dataset = make_default_val_dataset(dirpath, **predict_config.dataset)
+
             for img_i in tqdm.trange(len(dataset)):
                 mask_fname = dataset.mask_filenames[img_i]
                 #Inpaint directory, subdirectory, and image name respectively
                 cur_out_fname = os.path.join(inpaint_dir, dirpath[len(bg_dir) +1:], mask_fname.split('\\')[-1].split('.')[0][:-8]+'.png')
                 os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
                 batch = default_collate([dataset[img_i]])
+                print(dataset[img_i].keys())
 
                 # if predict_config.get('refine', False):
                 #     assert 'unpad_to_size' in batch, "Unpadded size is required for the refinement"

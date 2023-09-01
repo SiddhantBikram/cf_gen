@@ -126,3 +126,4 @@ def get_class_num(dataset_name):
     elif dataset_name =='waterbirds':
         output_dim = 2
     return output_dim
+
