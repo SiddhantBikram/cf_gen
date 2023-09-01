@@ -43,8 +43,6 @@ for dirpath, dirnames, filenames in os.walk(image_dir):
     if not os.path.isdir(structure3):
         os.mkdir(structure3)
 
-image_dim = 256
-
 def seg_model(size, seed):
     hypar = {} # paramters for inferencing
     hypar["model_path"] = os.path.join(root_dir, 'weights') ## load trained weights from this path
@@ -68,11 +66,15 @@ i=0
 for root, dirs, files in os.walk(image_dir):
 	for img_name in files:
             image_path = os.path.join(root, img_name)
-            image_tensor, orig_size = load_image(image_path, hypar, image_dim)
+            image_tensor, orig_size = load_image(hypar=hypar, im_path=image_path)
+            # image_tensor = Image.open(image_path)
+            # image_tensor = np.array(image_tensor)
+            print(image_tensor.shape)
             mask = predict(net,image_tensor,orig_size, hypar, device)
+            # exit()
 
             image_mask = Image.fromarray(mask)
-            image = Image.open(image_path)
+            image = Image.fromarray(image_path)
             blank = image.point(lambda _: 0)
             object = Image.composite(image, blank, image_mask)
             object = object.resize((image_dim,image_dim), Image.Resampling.LANCZOS)

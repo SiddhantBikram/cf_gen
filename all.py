@@ -1,5 +1,6 @@
 import torch
 from byol_loader import BYOL, TwoCropsTransform, GaussianBlur
+from lama_loader import load_checkpoint, move_to_device
 from torchvision import models
 import os
 from PIL import Image
@@ -10,17 +11,17 @@ import torchvision.datasets as datasets
 import pickle
 import tqdm
 warnings.filterwarnings("ignore")
-from backdoor_loader import *
-from configs import *
+
 from sklearn.metrics import precision_score, recall_score, f1_score, classification_report, accuracy_score
 from torch.utils.data._utils.collate import default_collate
 import cv2
 from omegaconf import OmegaConf
 import yaml
+from segment import build_model
 
-sys.path.append(os.path.join(root_dir,'cf_gen','lama'))
-from saicinpainting.training.trainers import load_checkpoint
-from saicinpainting.evaluation.utils import move_to_device
+from backdoor_loader import *
+from configs import *
+from dis_loader import *
 
 epochs = 4
 lr = 1e-3
@@ -56,6 +57,38 @@ def move_to_device(obj, device):
         return {name: move_to_device(val, device) for name, val in obj.items()}
     raise ValueError(f'Unexpected type {type(obj)}')
 
+def seg_model(size, seed):
+    hypar = {} # paramters for inferencing
+    hypar["model_path"] = os.path.join(root_dir, 'weights') ## load trained weights from this path
+    hypar["restore_model"] = "seg_weight.pth" ## name of the to-be-loaded weights
+    hypar["interm_sup"] = False ## indicate if activate intermediate feature supervision
+    hypar["model_digit"] = "full" ## indicates "half" or "full" accuracy of float number
+    hypar["seed"] = seed
+    hypar["cache_size"] = [size, size] ## cached input spatial resolution, can be configured into different size
+    hypar["input_size"] = [size, size] ## mdoel input spatial size, usually use the same value hypar["cache_size"], which means we don't further resize the images
+    hypar["crop_size"] = [size, size] ## random crop size from the input, it is usually set as smaller than hypar["cache_size"], e.g., [920,920] for data augmentation
+    hypar["model"] = ISNetDIS()
+
+    net = build_model(hypar, device)
+
+    return net, hypar
+
+def init_inpaint():
+    
+    train_config_path = os.path.join(root_dir, 'cf_gen/lama/configs/prediction/inpaint_train.yaml')
+
+    with open(train_config_path, 'r') as f:
+        train_config = OmegaConf.create(yaml.safe_load(f))
+    
+    train_config.training_model.predict_only = True
+    train_config.visualizer.kind = 'noop'
+
+    checkpoint_path = os.path.join(weight_dir, 'inpaint_weights.ckpt')
+    model = load_checkpoint(train_config, checkpoint_path, strict=False, map_location='cpu')
+    model.freeze()
+    model.to(device)
+
+    return model
 
 class classifier(nn.Module):
 
@@ -118,10 +151,22 @@ def ssl_encode(encoder, image):
     embedding = encoder(image_one=image, image_two=None)
     return embedding[0].detach()
 
-def segment():
+def segment(img, seg_model, seg_hypar):
+    img = np.array(img)
+    image_tensor, orig_size = load_image(hypar=seg_hypar, img=img)
+    mask = predict(seg_model,image_tensor,orig_size, seg_hypar, device)
+    
+    mask = Image.fromarray(mask)
+    mask = mask.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
+
+    image = Image.fromarray(img)
+    blank = image.point(lambda _: 0)
+    obj = Image.composite(image, blank, mask)
+    obj = object.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
+
     return obj, mask
 
-def inpaint(img, mask, model):
+def inpaint(img, mask, inpaint_model):
 
     tuple = {}
     tuple['image'] = np.array(img)
@@ -132,7 +177,7 @@ def inpaint(img, mask, model):
     with torch.no_grad():
         batch = move_to_device(batch, device)
         batch['mask'] = (batch['mask'] > 0) * 1
-        batch = model(batch)                    
+        batch = inpaint_model(batch)                    
         cur_res = batch['inpainted'][0].permute(1, 2, 0).detach().cpu().numpy()
         unpad_to_size = batch.get('unpad_to_size', None)
         if unpad_to_size is not None:
@@ -147,7 +192,7 @@ def inpaint(img, mask, model):
 
     return bg
 
-def final_train(encoder, classifier):
+def final_train(encoder, classifier, seg_model, seg_hypar, inpaint_model):
 
     bg_embeddings = []
     obj_embeddings = []
@@ -155,8 +200,8 @@ def final_train(encoder, classifier):
 
     for i, data in tqdm(enumerate(train_loader), total=len(train_loader)):
         img, label = data
-        obj, mask = segment(img)
-        bg = inpaint(img, mask)
+        obj, mask = segment(img, seg_model, seg_hypar)
+        bg = inpaint(img, mask, inpaint_model)
 
         obj_rep = ssl_encode(encoder, obj) 
         bg_rep = ssl_encode(encoder, bg) 
@@ -199,24 +244,7 @@ def final_train(encoder, classifier):
     
     return classifier
 
-def init_inpaint():
-    
-    train_config_path = os.path.join(root_dir, 'cf_gen/lama/configs/prediction/inpaint_train.yaml')
-
-    with open(train_config_path, 'r') as f:
-        train_config = OmegaConf.create(yaml.safe_load(f))
-    
-    train_config.training_model.predict_only = True
-    train_config.visualizer.kind = 'noop'
-
-    checkpoint_path = os.path.join(weight_dir, 'inpaint_weights.ckpt')
-    model = load_checkpoint(train_config, checkpoint_path, strict=False, map_location='cpu')
-    model.freeze()
-    model.to(device)
-
-    return model
-
-def final_test(encoder, model):
+def final_test(encoder, model, seg_model, seg_hypar, inpaint_model):
 
     bg_embeddings = []
     obj_embeddings = []
@@ -227,8 +255,8 @@ def final_test(encoder, model):
 
     for i, data in tqdm(enumerate(val_loader), total=len(val_loader)):
         img, label = data
-        obj, mask = segment(img)
-        bg = inpaint(img, mask)
+        obj, mask = segment(img, seg_model, seg_hypar)
+        bg = inpaint(img, mask, inpaint_model)
 
         obj_rep = ssl_encode(encoder, obj) 
         bg_rep = ssl_encode(encoder, bg) 
@@ -275,11 +303,14 @@ def main():
         return_embedding = True
     )
 
+    seg_model, seg_hypar = seg_model(1024, 42)
+
+    # obj, mask = segment(img, net, hypar)
     inpaint_model = init_inpaint()
 
     classifier = classifier().to(device)
-    classifier = final_train(encoder, classifier)
-    final_test(encoder, classifier)
+    classifier = final_train(encoder, classifier, seg_model, seg_hypar, inpaint_model)
+    final_test(encoder, classifier, seg_model, seg_hypar, inpaint_model)
 
 main()
 
