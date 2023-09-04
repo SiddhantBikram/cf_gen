@@ -1,6 +1,5 @@
 import enum
 import re
-from symbol import testlist_star_expr
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -43,6 +42,7 @@ def preprocess_features(npdata, pca):
     Returns:
         np.array of dim N * pca: data PCA-reduced, whitened and L2-normalized
     """
+
     _, ndim = npdata.shape
     assert npdata.dtype == np.float32
 
@@ -150,7 +150,6 @@ def reduce(feats, k):
     prototypes.append(centroids)
     prototypes = np.array(prototypes)
     prototypes =  prototypes.reshape(-1, image_dim)
-    print(prototypes.shape)
     # print(f'datasets_deconf/{args.dataset}/train_bag_cls_agnostic_feats_proto_{k}.npy')
     # np.save(f'datasets_deconf/{args.dataset}/train_bag_cls_agnostic_feats_proto_{k}.npy', prototypes)
 

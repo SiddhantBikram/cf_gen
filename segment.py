@@ -69,12 +69,10 @@ for root, dirs, files in os.walk(image_dir):
             image_tensor, orig_size = load_image(hypar=hypar, im_path=image_path)
             # image_tensor = Image.open(image_path)
             # image_tensor = np.array(image_tensor)
-            print(image_tensor.shape)
             mask = predict(net,image_tensor,orig_size, hypar, device)
-            # exit()
 
             image_mask = Image.fromarray(mask)
-            image = Image.fromarray(image_path)
+            image = Image.open(image_path)
             blank = image.point(lambda _: 0)
             object = Image.composite(image, blank, image_mask)
             object = object.resize((image_dim,image_dim), Image.Resampling.LANCZOS)

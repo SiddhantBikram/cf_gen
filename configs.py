@@ -16,5 +16,5 @@ val_dir = os.path.join(image_dir, 'val')
 
 device = 'cuda'
 image_dim = 256
-n_clusters = 10
+n_clusters = n_classes
 seed = 510

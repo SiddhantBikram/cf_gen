@@ -16,12 +16,12 @@ from configs import *
 device = 'cuda'
 
 resnet = models.resnet50(pretrained=True).to(device)
-resnet.state_dict(torch.load(os.path.join(root_dir, 'weights', dataset_name, 'model.pt')))
+resnet.state_dict(torch.load(os.path.join(root_dir, 'weights', dataset_name, 'resnet.pt')))
 
 with open(os.path.join(root_dir, 'weights', dataset_name , 'paths'), "rb") as fp:   
    names = pickle.load(fp)
 
-train_dataset = datasets.ImageFolder(inpaint_dir, transforms.ToTensor())
+train_dataset = datasets.ImageFolder(image_dir, transforms.ToTensor())
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset, batch_size=1, shuffle = False, pin_memory=True, drop_last=True)
@@ -41,6 +41,7 @@ for j, (images, _) in enumerate(train_loader):
         images.to(device)
         embedding = encoder(image_one=images, image_two=None)
         embeddings.append(embedding[0].detach())
+        exit()
 
 embeddings = torch.stack(embeddings)
 

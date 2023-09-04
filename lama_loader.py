@@ -15,12 +15,10 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 import cv2
-import hydra
 import numpy as np
 import torch
 import tqdm
 import yaml
-from omegaconf import OmegaConf
 from torch.utils.data._utils.collate import default_collate
 import glob
 import shutil

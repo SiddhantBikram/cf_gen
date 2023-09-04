@@ -11,22 +11,40 @@ import torchvision.datasets as datasets
 import pickle
 import tqdm
 warnings.filterwarnings("ignore")
-
+import psutil
+import gc
 from sklearn.metrics import precision_score, recall_score, f1_score, classification_report, accuracy_score
 from torch.utils.data._utils.collate import default_collate
 import cv2
 from omegaconf import OmegaConf
 import yaml
-from segment import build_model
+from dis_loader import *
 
 from backdoor_loader import *
 from configs import *
 from dis_loader import *
 
-epochs = 4
+epochs = 50
 lr = 1e-3
 gamma = 0.7
 seed = 510
+
+def seed_everything(seed: int):
+    import random, os
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+    g = torch.Generator()
+    g.manual_seed(seed)
+    
+seed_everything(seed)
 
 augmentation = [
             transforms.RandomResizedCrop(256, scale=(0.2, 1.)),
@@ -41,10 +59,55 @@ augmentation = [
                                     std=[0.229, 0.224, 0.225])
         ]
 
-train_dataset = datasets.ImageFolder(train_dir, TwoCropsTransform(transforms.Compose(augmentation)))
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle = True, pin_memory=True, drop_last=True)
-val_dataset = datasets.ImageFolder(val_dir)
-val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle = True, pin_memory=True, drop_last=True)
+train_transforms = transforms.Compose(
+    [
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ]
+)
+
+val_transforms = transforms.Compose(
+    [
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ]
+)
+
+class ImageFolderWithPaths(datasets.ImageFolder):
+
+    def __getitem__(self, index):
+  
+        img, label = super(ImageFolderWithPaths, self).__getitem__(index)
+        
+        path = str(self.imgs[index][0])
+        
+        return (img, label ,path)
+
+class Dataset(torch.utils.data.Dataset):
+
+    def __init__(self, objs, bgs, labels):
+        self.objs = objs
+        self.bgs = bgs
+        self.labels = labels
+
+    def __getitem__(self, idx):
+
+        obj = self.objs[idx]
+        bg = self.bgs[idx]
+        label = self.labels[idx]
+
+        return (obj, bg, label)
+
+    def __len__(self):
+        return len(self.labels)   
+      
+
+ssl_train_dataset = datasets.ImageFolder(train_dir, TwoCropsTransform(transforms.Compose(augmentation)))
+ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset, batch_size=1, shuffle = False, pin_memory=True, drop_last=True)
+train_dataset = ImageFolderWithPaths(train_dir, transform=train_transforms)
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle = False, pin_memory=True, drop_last=True)
+val_dataset = ImageFolderWithPaths(val_dir, transform=val_transforms)
+val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle = False, pin_memory=True, drop_last=True)
 
 def move_to_device(obj, device):
     if isinstance(obj, nn.Module):
@@ -57,7 +120,7 @@ def move_to_device(obj, device):
         return {name: move_to_device(val, device) for name, val in obj.items()}
     raise ValueError(f'Unexpected type {type(obj)}')
 
-def seg_model(size, seed):
+def init_seg(size, seed):
     hypar = {} # paramters for inferencing
     hypar["model_path"] = os.path.join(root_dir, 'weights') ## load trained weights from this path
     hypar["restore_model"] = "seg_weight.pth" ## name of the to-be-loaded weights
@@ -90,16 +153,16 @@ def init_inpaint():
 
     return model
 
-class classifier(nn.Module):
+class classifier_model(nn.Module):
 
     def __init__(self):
-        super(classifier, self).__init__()
+        super(classifier_model, self).__init__()
 
         # self.fc1 = nn.Linear(512, 128)
         # self.fc2 = nn.Linear(128, n_classes)
         self.fc = nn.Linear(image_dim*2, n_classes)
 
-        self.dropout = nn.Dropout(0.25)
+        # self.dropout = nn.Dropout(0.25)
 
     def forward(self, concat):
       
@@ -130,7 +193,7 @@ def train_ssl(model, load_weights = True):
     learner.train()
 
     for i in range(epochs):
-        for j, (images, _) in enumerate(train_loader):
+        for j, (images, _) in enumerate(ssl_train_loader):
 
             images[0] = images[0].cuda(non_blocking=True)
             images[1] = images[1].cuda(non_blocking=True)
@@ -146,31 +209,36 @@ def train_ssl(model, load_weights = True):
     return model
 
 def ssl_encode(encoder, image):
+    # print(image.shape)
+    # image = np.swapaxes(image,0,2)
+    # pil = Image.fromarray(image)
+    # pil.show()
+    encoder.eval()
 
-    image.to(device)
     embedding = encoder(image_one=image, image_two=None)
     return embedding[0].detach()
 
-def segment(img, seg_model, seg_hypar):
-    img = np.array(img)
-    image_tensor, orig_size = load_image(hypar=seg_hypar, img=img)
+def segment(img, path, seg_model, seg_hypar):
+
+    image_tensor, orig_size = load_image(hypar=seg_hypar, im_path=path)
     mask = predict(seg_model,image_tensor,orig_size, seg_hypar, device)
-    
+
     mask = Image.fromarray(mask)
     mask = mask.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
 
-    image = Image.fromarray(img)
+    image = Image.open(path)
+    image = image.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
     blank = image.point(lambda _: 0)
     obj = Image.composite(image, blank, mask)
-    obj = object.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
+    obj = obj.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
 
     return obj, mask
 
-def inpaint(img, mask, inpaint_model):
+def inpaint(img, path, mask, inpaint_model):
 
     tuple = {}
     tuple['image'] = np.array(img)
-    tuple['mask'] = np.array(mask)
+    tuple['mask'] = np.expand_dims(np.array(mask), axis=0)
     tuple['unpad_to_size'] = [torch.Tensor([256]), torch.Tensor([256])]
     batch = default_collate([tuple])
 
@@ -179,38 +247,47 @@ def inpaint(img, mask, inpaint_model):
         batch['mask'] = (batch['mask'] > 0) * 1
         batch = inpaint_model(batch)                    
         cur_res = batch['inpainted'][0].permute(1, 2, 0).detach().cpu().numpy()
-        unpad_to_size = batch.get('unpad_to_size', None)
-        if unpad_to_size is not None:
-            orig_height, orig_width = unpad_to_size
-            cur_res = cur_res[:orig_height, :orig_width]
 
     bg = np.clip(cur_res * 255, 0, 255).astype('uint8')
     bg = cv2.cvtColor(bg, cv2.COLOR_RGB2BGR)
 
-    window_name = 'image'
-    cv2.imshow(window_name, bg)    
-
     return bg
 
-def final_train(encoder, classifier, seg_model, seg_hypar, inpaint_model):
+def classifier_train(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True):
 
-    bg_embeddings = []
-    obj_embeddings = []
-    labels = []
+    if load_embeddings == True:
+        train_bg_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'bg_embeddings.pt'))
+        train_obj_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'obj_embeddings.pt'))
+        train_labels = torch.load(os.path.join(weight_dir, dataset_name, 'labels.pt'))
 
-    for i, data in tqdm(enumerate(train_loader), total=len(train_loader)):
-        img, label = data
-        obj, mask = segment(img, seg_model, seg_hypar)
-        bg = inpaint(img, mask, inpaint_model)
+    else:
+        print('Making training embeddings')
+        train_bg_embeddings = []
+        train_obj_embeddings = []
+        train_labels = []
+        for (img, label, path) in tqdm(train_loader):
+            obj, mask = segment(img[0], path[0], seg_model, seg_hypar)
+            bg = inpaint(img[0], path[0], mask, inpaint_model)
 
-        obj_rep = ssl_encode(encoder, obj) 
-        bg_rep = ssl_encode(encoder, bg) 
+            obj_rep = ssl_encode(encoder, transforms.ToTensor()(obj).unsqueeze_(0)) 
+            bg_rep = ssl_encode(encoder, transforms.ToTensor()(bg).unsqueeze_(0)) 
 
-        obj_embeddings.append(obj_rep)
-        bg_embeddings.append(bg_rep)
-        labels.append(label)
+            obj_embeddings.append(obj_rep.cpu().detach())
+            bg_embeddings.append(bg_rep.cpu().detach())
+            
+            labels.append(label[0])
 
-    bg_embeddings = torch.stack(bg_embeddings)
+        bg_embeddings = torch.stack(bg_embeddings)
+        obj_embeddings = torch.stack(obj_embeddings)
+        labels = torch.stack(labels)
+        
+        torch.save(obj_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'obj_embeddings.pt'))
+        torch.save(bg_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'bg_embeddings.pt'))
+        torch.save(labels, os.path.join(root_dir, 'weights', dataset_name, 'labels.pt'))
+      
+    bg_embeddings = bg_embeddings.squeeze(1)
+    obj_embeddings = obj_embeddings.squeeze(1)
+
     conf_dict = reduce(bg_embeddings, n_clusters)
     conf_dict = torch.from_numpy(conf_dict)
     ccim = CCIM(1, image_dim, strategy='dp_cause')
@@ -218,33 +295,42 @@ def final_train(encoder, classifier, seg_model, seg_hypar, inpaint_model):
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(classifier.parameters(), lr = lr, eps=1e-8)
 
-    print("Training")
-    classifier.train()
+    train_embed_dataset = Dataset(obj_embeddings, bg_embeddings, labels)
 
+    train_embed_loader = torch.utils.data.DataLoader(train_embed_dataset, batch_size=1, shuffle = True, pin_memory=False, drop_last=True)
+
+    print("Training")
+
+    classifier.train()
+    
     for epoch in range(epochs):
         epoch_loss = 0
         epoch_accuracy = 0
 
-        for i in range(len(bg_embeddings)):
+        for (obj, bg, label) in tqdm(train_embed_loader):
+            
+            joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
 
-            joint_rep = torch.cat((obj_embeddings[i], bg_embeddings[i]), 0).unsqueeze(1).cpu()
-            final_rep = ccim(joint_rep, conf_dict).to(device)
+            final_rep = ccim(joint_rep, conf_dict).detach().squeeze(1).to(device)
             output = classifier(final_rep)
-            loss = criterion(output, labels[i])
+
+            loss = criterion(output, label[0].cuda())
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            acc = (output.argmax(dim=1) == labels).float().mean()
+            acc = (output.cpu().argmax(dim=0) == label).float().mean()
             epoch_accuracy += acc / len(bg_embeddings)
             epoch_loss += loss / len(bg_embeddings)
-
-            print(f"Epoch : {epoch+1} - loss : {epoch_loss:.4f} - acc: {epoch_accuracy:.4f}\n")
+            
+        print(f"Epoch : {epoch+1} - loss : {epoch_loss:.4f} - acc: {epoch_accuracy:.4f}\n")
     
+    torch.save(classifier.state_dict(),  os.path.join(weight_dir, dataset_name, 'classifier.pt'))
+
     return classifier
 
-def final_test(encoder, model, seg_model, seg_hypar, inpaint_model):
+def classifier_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True):
 
     bg_embeddings = []
     obj_embeddings = []
@@ -253,41 +339,217 @@ def final_test(encoder, model, seg_model, seg_hypar, inpaint_model):
     y_pred = []
     y_true = []
 
-    for i, data in tqdm(enumerate(val_loader), total=len(val_loader)):
-        img, label = data
-        obj, mask = segment(img, seg_model, seg_hypar)
-        bg = inpaint(img, mask, inpaint_model)
 
-        obj_rep = ssl_encode(encoder, obj) 
-        bg_rep = ssl_encode(encoder, bg) 
+    if load_embeddings == True:
+        bg_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'val_bg_embeddings.pt'))
+        obj_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'val_obj_embeddings.pt'))
+        labels = torch.load(os.path.join(weight_dir, dataset_name, 'val_labels.pt'))
 
-        obj_embeddings.append(obj_rep)
-        bg_embeddings.append(bg_rep)
-        labels.append(label)
+    else:
+    
+        print('Making test embeddings')
 
-    bg_embeddings = torch.stack(bg_embeddings)
+        for (img, label, path) in tqdm(val_loader):
+            obj, mask = segment(img[0], path[0], seg_model, seg_hypar)
+            bg = inpaint(img[0], path[0], mask, inpaint_model)
+
+            obj_rep = ssl_encode(encoder, transforms.ToTensor()(obj).unsqueeze_(0)) 
+            bg_rep = ssl_encode(encoder, transforms.ToTensor()(bg).unsqueeze_(0)) 
+
+            obj_embeddings.append(obj_rep.cpu().detach())
+            bg_embeddings.append(bg_rep.cpu().detach())
+            labels.append(label[0])
+
+        bg_embeddings = torch.stack(bg_embeddings)
+        obj_embeddings = torch.stack(obj_embeddings)
+        labels = torch.stack(labels)
+
+        torch.save(obj_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'val_obj_embeddings.pt'))
+        torch.save(bg_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'val_bg_embeddings.pt'))
+        torch.save(labels, os.path.join(root_dir, 'weights', dataset_name, 'val_labels.pt'))
+
+    bg_embeddings = bg_embeddings.squeeze(1)
+    obj_embeddings = obj_embeddings.squeeze(1)
+
     conf_dict = reduce(bg_embeddings, n_clusters)
     conf_dict = torch.from_numpy(conf_dict)
     ccim = CCIM(1, image_dim, strategy='dp_cause')
 
+    val_embed_dataset = Dataset(obj_embeddings, bg_embeddings, labels)
+
+    val_embed_loader = torch.utils.data.DataLoader(val_embed_dataset, batch_size=1, shuffle = True, pin_memory=False, drop_last=True)
+
     print("Testing")
 
-    model.eval()
+    classifier.eval()
 
-    for i in range(len(bg_embeddings)):
+    for (obj, bg, label) in tqdm(val_embed_loader):
 
-        joint_rep = torch.cat((obj_embeddings[i], bg_embeddings[i]), 0).unsqueeze(1).cpu()
-        final_rep = ccim(joint_rep, conf_dict).to(device)
+        joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
+        final_rep = ccim(joint_rep, conf_dict).detach().squeeze(1).to(device)
         output = classifier(final_rep)
 
-        _, prediction = output.data.max(1)
-        y_pred.extend(prediction.tolist())
-        y_true.extend(labels.tolist())
+        prediction = output.cpu().argmax(dim=0)
+        y_pred.append(prediction.item())
+        y_true.append(label[0])
+                
+    print("Accuracy:{:.4f}".format(accuracy_score(y_true, y_pred) ))
+    print("Recall:{:.4f}".format(recall_score(y_true, y_pred,average='macro') ))
+    print("Precision:{:.4f}".format(precision_score(y_true, y_pred,average='macro') ))
+    print("f1_score:{:.4f}".format(f1_score(y_true, y_pred,average='macro')))
 
-        print("Accuracy:{:.4f}".format(accuracy_score(y_true, y_pred) ))
-        print("Recall:{:.4f}".format(recall_score(y_true, y_pred,average='macro') ))
-        print("Precision:{:.4f}".format(precision_score(y_true, y_pred,average='macro') ))
-        print("f1_score:{:.4f}".format(f1_score(y_true, y_pred,average='macro')))
+    print(y_pred)
+
+def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True):
+
+    y_pred = []
+    y_true = []
+
+    if load_embeddings == True:
+        train_bg_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'bg_embeddings.pt'))
+        train_obj_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'obj_embeddings.pt'))
+        train_labels = torch.load(os.path.join(weight_dir, dataset_name, 'labels.pt'))
+
+        val_bg_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'val_bg_embeddings.pt'))
+        val_obj_embeddings = torch.load(os.path.join(weight_dir, dataset_name, 'val_obj_embeddings.pt'))
+        val_labels = torch.load(os.path.join(weight_dir, dataset_name, 'val_labels.pt'))
+
+    else:
+        print('Making training embeddings')
+
+        train_bg_embeddings = []
+        train_obj_embeddings = []
+        train_labels = []
+
+        for (img, label, path) in tqdm(train_loader):
+            obj, mask = segment(img[0], path[0], seg_model, seg_hypar)
+            bg = inpaint(img[0], path[0], mask, inpaint_model)
+
+            obj_rep = ssl_encode(encoder, transforms.ToTensor()(obj).unsqueeze_(0)) 
+            bg_rep = ssl_encode(encoder, transforms.ToTensor()(bg).unsqueeze_(0)) 
+
+            train_obj_embeddings.append(obj_rep.cpu().detach())
+            train_bg_embeddings.append(bg_rep.cpu().detach())
+            train_labels.append(label[0])
+
+        train_bg_embeddings = torch.stack(train_bg_embeddings)
+        train_obj_embeddings = torch.stack(train_obj_embeddings)
+        train_labels = torch.stack(train_labels)
+        
+        torch.save(train_obj_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'obj_embeddings.pt'))
+        torch.save(train_bg_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'bg_embeddings.pt'))
+        torch.save(train_labels, os.path.join(root_dir, 'weights', dataset_name, 'labels.pt'))
+        
+        val_bg_embeddings = []
+        val_obj_embeddings = []
+        val_labels = []
+
+        print('Making test embeddings')
+
+        for (img, label, path) in tqdm(val_loader):
+            obj, mask = segment(img[0], path[0], seg_model, seg_hypar)
+            bg = inpaint(img[0], path[0], mask, inpaint_model)
+
+            obj_rep = ssl_encode(encoder, transforms.ToTensor()(obj).unsqueeze_(0)) 
+            bg_rep = ssl_encode(encoder, transforms.ToTensor()(bg).unsqueeze_(0)) 
+
+            val_obj_embeddings.append(obj_rep.cpu().detach())
+            val_bg_embeddings.append(bg_rep.cpu().detach())
+            val_labels.append(label[0])
+
+        val_bg_embeddings = torch.stack(val_bg_embeddings)
+        val_obj_embeddings = torch.stack(val_obj_embeddings)
+        val_labels = torch.stack(val_labels)
+
+        torch.save(val_obj_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'val_obj_embeddings.pt'))
+        torch.save(val_bg_embeddings, os.path.join(root_dir, 'weights', dataset_name, 'val_bg_embeddings.pt'))
+        torch.save(val_labels, os.path.join(root_dir, 'weights', dataset_name, 'val_labels.pt'))
+
+    val_bg_embeddings = val_bg_embeddings.squeeze(1)
+    val_obj_embeddings = val_obj_embeddings.squeeze(1)
+    train_bg_embeddings = train_bg_embeddings.squeeze(1)
+    train_obj_embeddings = train_obj_embeddings.squeeze(1)
+
+    conf_dict = reduce(train_bg_embeddings, n_clusters)
+    conf_dict = torch.from_numpy(conf_dict)
+    ccim = CCIM(1, image_dim, strategy='dp_cause')
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(classifier.parameters(), lr = lr, eps=1e-8)
+
+    train_embed_dataset = Dataset(train_obj_embeddings, train_bg_embeddings, train_labels)
+    train_embed_loader = torch.utils.data.DataLoader(train_embed_dataset, batch_size=1, shuffle = True, pin_memory=False, drop_last=True)
+
+    val_embed_dataset = Dataset(val_obj_embeddings, val_bg_embeddings, val_labels)
+    val_embed_loader = torch.utils.data.DataLoader(val_embed_dataset, batch_size=1, shuffle = True, pin_memory=False, drop_last=True)
+
+    
+    for epoch in range(epochs):
+        
+        train_epoch_loss = 0
+        train_epoch_accuracy = 0
+        
+        classifier.train()
+
+        for (obj, bg, label) in tqdm(train_embed_loader):
+            
+            joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
+
+            final_rep = ccim(joint_rep, conf_dict).detach().squeeze(1).to(device)
+            output = classifier(final_rep)
+
+            loss = criterion(output, label[0].cuda())
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            acc = (output.cpu().argmax(dim=0) == label).float().mean()
+            train_epoch_accuracy += acc / len(train_bg_embeddings)
+            train_epoch_loss += loss / len(train_bg_embeddings)
+            
+        # print(f"Epoch : {epoch+1} - loss : {train_epoch_loss:.4f} - acc: {train_epoch_accuracy:.4f}\n")
+
+        val_epoch_loss = 0
+        val_epoch_accuracy = 0
+        
+        classifier.eval()
+
+        for (obj, bg, label) in tqdm(val_embed_loader):
+            
+            joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
+
+            final_rep = ccim(joint_rep, conf_dict).detach().squeeze(1).to(device)
+            output = classifier(final_rep)
+
+            loss = criterion(output, label[0].cuda())
+            acc = (output.cpu().argmax(dim=0) == label).float().mean()
+            val_epoch_accuracy += acc / len(val_bg_embeddings)
+            val_epoch_loss += loss / len(val_bg_embeddings)
+            
+        print(f"Epoch : {epoch+1} - train_loss : {train_epoch_loss:.4f} - train_acc: {train_epoch_accuracy:.4f} - val_loss : {val_epoch_loss:.4f} - val_acc: {val_epoch_accuracy:.4f}\n")
+    
+    torch.save(classifier.state_dict(),  os.path.join(weight_dir, dataset_name, 'classifier.pt'))
+    print("Testing")
+
+    classifier.eval()
+
+    for (obj, bg, label) in tqdm(val_embed_loader):
+
+        joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
+        final_rep = ccim(joint_rep, conf_dict).detach().squeeze(1).to(device)
+        output = classifier(final_rep)
+
+        prediction = output.cpu().argmax(dim=0)
+        y_pred.append(prediction.item())
+        y_true.append(label[0])
+                
+    print("Accuracy:{:.4f}".format(accuracy_score(y_true, y_pred) ))
+    print("Recall:{:.4f}".format(recall_score(y_true, y_pred,average='macro') ))
+    print("Precision:{:.4f}".format(precision_score(y_true, y_pred,average='macro') ))
+    print("f1_score:{:.4f}".format(f1_score(y_true, y_pred,average='macro')))
+
+    print(y_pred)
 
 
 def main():
@@ -303,15 +565,18 @@ def main():
         return_embedding = True
     )
 
-    seg_model, seg_hypar = seg_model(1024, 42)
+    seg_model, seg_hypar = init_seg(1024, 42)
 
-    # obj, mask = segment(img, net, hypar)
     inpaint_model = init_inpaint()
 
-    classifier = classifier().to(device)
-    classifier = final_train(encoder, classifier, seg_model, seg_hypar, inpaint_model)
-    final_test(encoder, classifier, seg_model, seg_hypar, inpaint_model)
+    classifier = classifier_model().to(device)
 
+    # classifier = classifier_train(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True)
+    # classifier.state_dict(torch.load(os.path.join(weight_dir, dataset_name, 'classifier.pt')))
+
+    # classifier_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True)
+
+    train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True)
 main()
 
     
