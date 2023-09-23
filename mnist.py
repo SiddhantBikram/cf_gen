@@ -23,6 +23,7 @@ from dis_loader import *
 from backdoor_loader import *
 from configs import *
 from dis_loader import *
+from mnist_loader import *
 
 epochs = 50
 ssl_epochs = 5
@@ -47,6 +48,8 @@ def seed_everything(seed: int):
     
 seed_everything(seed)
 
+image_dim = 28
+
 augmentation = [
             transforms.RandomResizedCrop(256, scale=(0.2, 1.)),
             transforms.RandomApply([
@@ -62,14 +65,14 @@ augmentation = [
 
 train_transforms = transforms.Compose(
     [
-        transforms.Resize((256, 256)),
+        transforms.Resize((image_dim, image_dim)),
         transforms.ToTensor(),
     ]
 )
 
 val_transforms = transforms.Compose(
     [
-        transforms.Resize((256, 256)),
+        transforms.Resize((image_dim, image_dim)),
         transforms.ToTensor(),
     ]
 )
@@ -103,11 +106,11 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.labels)   
       
 
-ssl_train_dataset = datasets.ImageFolder(train_dir, TwoCropsTransform(transforms.Compose(augmentation)))
+ssl_train_dataset = ColoredMNIST(root='/content/drive/MyDrive/Scripts', env='all_train')
 ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset, batch_size=16, shuffle = False, pin_memory=True, drop_last=True)
-train_dataset = ImageFolderWithPaths(train_dir, transform=train_transforms)
+train_dataset = ColoredMNIST(root='/content/drive/MyDrive/Scripts', env='all_train')
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle = False, pin_memory=True, drop_last=True)
-val_dataset = ImageFolderWithPaths(val_dir, transform=val_transforms)
+val_dataset = ColoredMNIST(root='/content/drive/MyDrive/Scripts', env='test')
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle = False, pin_memory=True, drop_last=True)
 
 def move_to_device(obj, device):
@@ -206,6 +209,7 @@ def train_ssl(model, load_weights = True):
             loss.backward()
             opt.step()
             learner.update_moving_average() 
+
         print("Epoch: ",i," Loss: ", loss.item())
     torch.save(model.state_dict(),  os.path.join(weight_dir, dataset_name, 'ssl_encoder.pt'))
 
@@ -425,8 +429,8 @@ def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, loa
         train_labels = []
 
         for (img, label, path) in tqdm(train_loader):
-            obj, mask = segment(img[0], path[0], seg_model, seg_hypar)
-            bg = inpaint(img[0], path[0], mask, inpaint_model)
+            # obj, mask = segment(img[0], path[0], seg_model, seg_hypar)
+            # bg = inpaint(img[0], path[0], mask, inpaint_model)
 
             obj_rep = ssl_encode(encoder, transforms.ToTensor()(obj).unsqueeze_(0)) 
             bg_rep = ssl_encode(encoder, transforms.ToTensor()(bg).unsqueeze_(0)) 
@@ -500,11 +504,11 @@ def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, loa
 
         for (obj, bg, label) in tqdm(train_embed_loader):
             
-            joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
-            final_rep = ccim(joint_rep, conf_dict).detach().squeeze(1).to(device)
-            output = classifier(final_rep)
-            # joint_rep = torch.cat((obj[0], bg[0]), 0).to(device)
-            # output = classifier(joint_rep)
+            # joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
+            joint_rep = torch.cat((obj[0], bg[0]), 0).to(device)
+            # final_rep = ccim(joint_rep, conf_dict).detach().squeeze(1).to(device)
+            # output = classifier(final_rep)
+            output = classifier(joint_rep)
 
             loss = criterion(output, label[0].cuda())
 
@@ -524,12 +528,12 @@ def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, loa
         classifier.eval()
 
         for (obj, bg, label) in tqdm(val_embed_loader):
-            joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
-            final_rep = val_ccim(joint_rep, val_conf_dict).detach().squeeze(1).to(device)
-            output = classifier(final_rep)
+            joint_rep = torch.cat((obj[0], bg[0]), 0).to(device)
+            # joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
 
-            # joint_rep = torch.cat((obj[0], bg[0]), 0).to(device)
-            # output = classifier(joint_rep)
+            # final_rep = val_ccim(joint_rep, val_conf_dict).detach().squeeze(1).to(device)
+            # output = classifier(final_rep)
+            output = classifier(joint_rep)
 
             loss = criterion(output, label[0].cuda())
             acc = (output.cpu().argmax(dim=0) == label).float().mean()
@@ -545,12 +549,11 @@ def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, loa
     classifier.eval()
 
     for (obj, bg, label) in tqdm(val_embed_loader):
-        # joint_rep = torch.cat((obj[0], bg[0]), 0).to(device)
-        # output = classifier(joint_rep)
-
-        joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
-        final_rep = ccim(joint_rep, val_conf_dict).detach().squeeze(1).to(device)
-        output = classifier(final_rep)
+        joint_rep = torch.cat((obj[0], bg[0]), 0).to(device)
+        # joint_rep = torch.cat((obj[0], bg[0]), 0).unsqueeze(1).cpu()
+        # final_rep = ccim(joint_rep, val_conf_dict).detach().squeeze(1).to(device)
+        # output = classifier(final_rep)
+        output = classifier(joint_rep)
 
         prediction = output.cpu().argmax(dim=0)
         y_pred.append(prediction.item())
@@ -567,12 +570,12 @@ def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, loa
 def main():
     pt_model = models.resnet50(pretrained=True).to(device)
     ssl_encoder = pt_model
-    ssl_encoder = train_ssl(pt_model, load_weights = True)
+    ssl_encoder = train_ssl(pt_model, load_weights = False)
     print('BYOL Trained.')
 
     encoder = BYOL(
         ssl_encoder,
-        image_size = image_dim,
+        image_size = 512,
         hidden_layer = 'avgpool',
         return_embedding = True
     )
@@ -588,7 +591,7 @@ def main():
 
     # classifier_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True)
 
-    train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = True)
+    train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, load_embeddings = False)
 main()
 
     

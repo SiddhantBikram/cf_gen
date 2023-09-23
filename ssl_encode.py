@@ -41,7 +41,6 @@ for j, (images, _) in enumerate(train_loader):
         images.to(device)
         embedding = encoder(image_one=images, image_two=None)
         embeddings.append(embedding[0].detach())
-        exit()
 
 embeddings = torch.stack(embeddings)
 
