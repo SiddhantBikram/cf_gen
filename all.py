@@ -489,7 +489,7 @@ def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, loa
 
     val_embed_dataset = Dataset(val_obj_embeddings, val_bg_embeddings, val_labels)
     val_embed_loader = torch.utils.data.DataLoader(val_embed_dataset, batch_size=1, shuffle = True, pin_memory=False, drop_last=True)
-
+    #New loader with higher batch size.
     
     for epoch in range(epochs):
         
@@ -562,7 +562,6 @@ def train_val_test(encoder, classifier, seg_model, seg_hypar, inpaint_model, loa
     print("f1_score:{:.4f}".format(f1_score(y_true, y_pred,average='macro')))
 
     print(y_pred)
-
 
 def main():
     pt_model = models.resnet50(pretrained=True).to(device)

@@ -46,5 +46,8 @@ for img, x, y in zip(img_collection, tx, ty):
     full_image.paste(tile, (int((width-max_dim)*x), int((height-max_dim)*y)), mask=tile.convert('RGBA'))
 
 plt.figure(figsize = (16,12))
+full_image.save(os.path.join(root_dir, 'two.png'))
+
 plt.imshow(full_image)
+
 
