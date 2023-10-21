@@ -1,12 +1,10 @@
 import os
 
-# dataset_name = 'CIFAR-LT' 
-# dataset_name = 'MNIST-LT'
-dataset_name = 'ImageNet-Subset'
+dataset_name = 'IN9sub'
+n_classes = 9
 
-
-root_dir = 'D:/Research/Counterfactual/Scripts/'
-image_dir = os.path.join(root_dir, dataset_name)
+root_dir = '/content/drive/MyDrive/Scripts'
+image_dir = '/content/drive/MyDrive/Scripts/cf_gen/colored_mnist/mnist-lt'
 object_dir = os.path.join(root_dir, 'objects')
 bg_dir = os.path.join(root_dir, 'bg')
 mask_dir = os.path.join(root_dir, 'masks')
@@ -18,7 +16,5 @@ val_dir = os.path.join(image_dir, 'val')
 
 device = 'cuda'
 image_dim = 256
-n_classes = len(os.listdir(train_dir))
-n_clusters = 10
+n_clusters = n_classes
 seed = 510
-rep_dim = 256

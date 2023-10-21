@@ -18,6 +18,8 @@ import torch.nn as nn
 from torch.autograd import Variable
 from io import BytesIO
 import requests
+from PIL import Image
+from configs import *
 
 #### --------------------- DIS dataloader cache ---------------------####
 
@@ -1070,5 +1072,35 @@ def predict(net,  inputs_val, shapes_val, hypar, device):
     if device == 'cuda': torch.cuda.empty_cache()
     return (pred_val.detach().cpu().numpy()*255).astype(np.uint8) # it is the mask we need
 
+def init_seg(size, seed):
+    hypar = {} # paramters for inferencing
+    hypar["model_path"] = os.path.join(root_dir, 'weights') ## load trained weights from this path
+    hypar["restore_model"] = "seg_weight.pth" ## name of the to-be-loaded weights
+    hypar["interm_sup"] = False ## indicate if activate intermediate feature supervision
+    hypar["model_digit"] = "full" ## indicates "half" or "full" accuracy of float number
+    hypar["seed"] = seed
+    hypar["cache_size"] = [size, size] ## cached input spatial resolution, can be configured into different size
+    hypar["input_size"] = [size, size] ## mdoel input spatial size, usually use the same value hypar["cache_size"], which means we don't further resize the images
+    hypar["crop_size"] = [size, size] ## random crop size from the input, it is usually set as smaller than hypar["cache_size"], e.g., [920,920] for data augmentation
+    hypar["model"] = ISNetDIS()
+
+    net = build_model(hypar, device)
+
+    return net, hypar
 
 
+def segment(path, seg_model, seg_hypar):
+
+    image_tensor, orig_size = load_image(hypar=seg_hypar, im_path=path)
+    mask = predict(seg_model,image_tensor,orig_size, seg_hypar, device)
+
+    mask = Image.fromarray(mask)
+    mask = mask.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
+
+    image = Image.open(path)
+    image = image.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
+    blank = image.point(lambda _: 0)
+    obj = Image.composite(image, blank, mask)
+    obj = obj.resize((image_dim,image_dim), Image.Resampling.LANCZOS)
+
+    return obj, mask
