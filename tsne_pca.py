@@ -10,9 +10,13 @@ import torch
 import torchvision.datasets as datasets
 from torchvision import transforms
 from dis_loader import *
+from PIL import Image, ImageOps 
+import time
 
-dir = train_dir
+dir = 'D:/Research/Counterfactual/Scripts/colored_mnist/test'
+model_name = 'MNIST-Color'
 img_collection = []
+image_dim = 28
 
 def segment(path, seg_model, seg_hypar):
 
@@ -35,18 +39,23 @@ def main():
     seg_model, seg_hypar = init_seg(1024, seed)
 
     resnet = models.resnet50(pretrained=True).to(device)
-    resnet.state_dict(torch.load(os.path.join(root_dir, 'weights', dataset_name, 'ssl_encoder.pt')))
+    resnet.state_dict(torch.load(os.path.join(root_dir, 'weights', model_name, 'ssl_encoder.pt')))
 
     trans = transforms.Compose([transforms.ToTensor()])
     X = []
 
     resnet.eval()
 
-    for folder in os.listdir(dir):
+    for folder in ['4','9']:
         for im in os.listdir(os.path.join(dir,folder)):
             with torch.no_grad():
-                obj, mask = segment(os.path.join(dir,folder,im), seg_model, seg_hypar)
-                # image = Image.open(os.path.join(dir,folder,im))
+                # obj, mask = segment(os.path.join(dir,folder,im), seg_model, seg_hypar)
+                # obj = ImageOps.grayscale(obj) 
+                
+                image = Image.open(os.path.join(dir,folder,im))
+                # image = image.convert("L")
+                # image = image.convert('RGB')
+                obj = image
 
                 y_nonzero, x_nonzero, _ = np.nonzero(obj)
                 obj = obj.crop((np.min(x_nonzero), np.min(y_nonzero), np.max(x_nonzero), np.max(y_nonzero)))
@@ -54,7 +63,6 @@ def main():
 
                 arr = np.array(obj)
                 img_collection.append(arr)
-
                 encoded = resnet(trans(obj).unsqueeze(0).to(device))
                 X.append(encoded.cpu().numpy().squeeze(0))
 
@@ -86,7 +94,7 @@ def main():
         full_image.paste(tile, (int((width-max_dim)*x), int((height-max_dim)*y)), mask=tile.convert('RGBA'))
 
     plt.figure(figsize = (16,12))
-    full_image.save(os.path.join(root_dir, dataset_name+'.png'))
+    full_image.save(os.path.join(root_dir, 'plots', dataset_name+ '_' + str(time.time())+'.png'))
 
     plt.imshow(full_image)
 

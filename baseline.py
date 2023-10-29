@@ -9,6 +9,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from sklearn.metrics import precision_score, recall_score, f1_score, classification_report, accuracy_score
 torch.backends.cudnn.enabled = False
+import numpy as np
 
 # image_dir = os.path.join(root_dir, 'CIFAR-10')
 # train_dir = os.path.join(image_dir, 'train')
@@ -19,6 +20,7 @@ lr = 1e-3
 
 train_transforms = transforms.Compose(
     [
+        transforms.Grayscale(num_output_channels=3),
         transforms.Resize((image_dim, image_dim)),
         transforms.ToTensor(),
     ]
@@ -26,12 +28,15 @@ train_transforms = transforms.Compose(
 
 val_transforms = transforms.Compose(
     [
+        transforms.Grayscale(num_output_channels=3),
         transforms.Resize((image_dim, image_dim)),
         transforms.ToTensor(),
     ]
 )
 
 train_dataset = torchvision.datasets.ImageFolder(train_dir, transform=train_transforms)
+train_dataset = torch.utils.data.Subset(train_dataset, range(len(train_dataset)-522))
+
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=16, shuffle = True, pin_memory=True, drop_last=True)
 val_dataset = torchvision.datasets.ImageFolder(val_dir, transform=val_transforms)
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=16, shuffle = True, pin_memory=True, drop_last=True)

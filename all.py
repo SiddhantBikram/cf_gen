@@ -19,9 +19,9 @@ from backdoor_loader import *
 from configs import *
 from lama_loader import *
 
-epochs = 15
+epochs = 50
 ssl_epochs = 10
-lr = 1e-2
+lr = 1e-3
 gamma = 0.7
 seed = 510
 embed_batch_size = 16
@@ -59,6 +59,7 @@ augmentation = [
 train_transforms = transforms.Compose(
     [
         transforms.Resize((image_dim, image_dim)),
+        transforms.Grayscale(num_output_channels=3),
         transforms.ToTensor(),
     ]
 )
@@ -66,6 +67,7 @@ train_transforms = transforms.Compose(
 val_transforms = transforms.Compose(
     [
         transforms.Resize((image_dim, image_dim)),
+        transforms.Grayscale(num_output_channels=3),
         transforms.ToTensor(),
     ]
 )
@@ -213,6 +215,12 @@ def make_embeddings(encoder, seg_model, seg_hypar, inpaint_model):
         obj, mask = segment(path[0], seg_model, seg_hypar)
         bg = inpaint(img[0], mask, inpaint_model)
 
+        print(np.array(mask).shape)
+        print(np.array(img[0]).shape)
+
+        obj = Image.open(path[0])
+        bg = Image.new(mode="RGB", size=(image_dim, image_dim))
+
         y_nonzero, x_nonzero, _ = np.nonzero(obj)
         obj = obj.crop((np.min(x_nonzero), np.min(y_nonzero), np.max(x_nonzero), np.max(y_nonzero)))
         obj= obj.resize((image_dim,image_dim))
@@ -239,8 +247,11 @@ def make_embeddings(encoder, seg_model, seg_hypar, inpaint_model):
     print('Making test embeddings')
 
     for (img, label, path) in tqdm(val_loader):
-        obj, mask = segment(path[0], seg_model, seg_hypar)
-        bg = inpaint(img[0], mask, inpaint_model)
+        # obj, mask = segment(path[0], seg_model, seg_hypar)
+        # bg = inpaint(img[0], mask, inpaint_model)
+
+        obj = Image.open(path[0])
+        bg = Image.new(mode="RGB", size=(image_dim, image_dim))
 
         y_nonzero, x_nonzero, _ = np.nonzero(obj)
         obj = obj.crop((np.min(x_nonzero), np.min(y_nonzero), np.max(x_nonzero), np.max(y_nonzero)))
@@ -280,6 +291,26 @@ def classifier_train(classifier, train_obj_embeddings, train_bg_embeddings, val_
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(classifier.parameters(), lr = lr, eps=1e-8)
+
+    # for i in range(len(train_labels)):
+    #     try:
+    #         if train_labels[i] == 1:
+    #             train_bg_embeddings = np.delete(train_bg_embeddings, 0)
+    #             train_labels = np.delete(train_labels, 0)
+    #             train_obj_embeddings = np.delete(train_obj_embeddings, 0)
+    #     except:
+    #         break
+
+    train_obj_embeddings = torch.utils.data.Subset(train_obj_embeddings, range(len(train_obj_embeddings)-522))
+    train_bg_embeddings = torch.utils.data.Subset(train_bg_embeddings, range(len(train_bg_embeddings)-522))
+    train_labels = torch.utils.data.Subset(train_labels, range(len(train_labels)-522))
+
+
+    print(len(train_labels))
+
+    unique, counts = np.unique(train_labels, return_counts=True)
+
+    print(np.asarray((unique, counts)).T)
 
     train_embed_dataset = custom_dataset(train_obj_embeddings, train_bg_embeddings, train_labels)
     train_embed_loader = torch.utils.data.DataLoader(train_embed_dataset, batch_size=embed_batch_size, shuffle = True, pin_memory=False, drop_last=True)

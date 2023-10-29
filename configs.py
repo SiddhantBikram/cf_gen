@@ -1,8 +1,8 @@
 import os
 
 # dataset_name = 'CIFAR-LT' 
-# dataset_name = 'MNIST-LT'
-dataset_name = 'ImageNet-Subset'
+dataset_name = 'MNIST-LT'
+# dataset_name = 'ImageNet-Subset'
 
 
 root_dir = 'D:/Research/Counterfactual/Scripts/'
