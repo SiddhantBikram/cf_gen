@@ -17,8 +17,15 @@ train_dir = os.path.join(image_dir, 'train')
 val_dir = os.path.join(image_dir, 'val')
 
 device = 'cuda'
-image_dim = 256
+image_dim = 32
 n_classes = len(os.listdir(train_dir))
 n_clusters = 10
 seed = 510
 rep_dim = 256
+
+epochs = 50
+ssl_epochs = 10
+lr = 1e-3
+gamma = 0.7
+seed = 510
+embed_batch_size = 16
